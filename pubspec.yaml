@@ -1,5 +1,5 @@
 name: leak_sentry
-description: "A new Flutter package project."
+description: "Finds memory leaks in Flutter apps: disposed objects that something still holds on to, with the path that holds them."
 version: 0.0.1
 homepage:
 
@@ -10,6 +10,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  vm_service: ^15.0.0
+  meta: ^1.16.0
+  stack_trace: ^1.12.1
 
 dev_dependencies:
   flutter_test:
