@@ -1,8 +1,7 @@
-Inspired by [LeakCanary for Android](https://square.github.io/leakcanary/)
-
 Automatic memory-leak detection for Flutter.
 
 LeakSentry watches the objects Flutter disposes and tells you which ones something is still holding on to. When it can reach the app's VM service, it also shows what is holding them.
+
 
 <p align="center">
   <a href="doc/how-it-works.mp4"><img src="doc/how-it-works.gif" width="300" alt="A recording of LeakSentry at work in an example app: pages that leak are visited, a notice says objects are held, a scan finds three leaks, and a leak shows where it was created and what holds it"></a>
@@ -413,3 +412,6 @@ Without it LeakSentry still detects leaks, but forces the GC by allocating, whic
 ## Performance
 
 `LeakSentry.stats` counts what detection has cost so far: events handled, forced GCs (and how many were skipped), heap dumps, analyses, retaining-path lookups, and the time spent in each.
+
+
+Inspired by [LeakCanary for Android](https://square.github.io/leakcanary/)
