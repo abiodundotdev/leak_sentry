@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /Users/qudus.qazeem/Documents/Packages/leakcanary && find object-watcher -name 'KeyedWeakReference.kt' -o -name 'ObjectWatcher.kt' -o -name 'RetainedObjectTracker*.kt' | grep -v build; grep -rn \"retainedUptimeMillis\\\\|heapDumpUptimeMillis\" --include=*.kt -l . | grep -v '/build/' | head -30)",
+      "Read(//Users/qudus.qazeem/Documents/Packages/leakcanary/**)"
+    ]
+  }
+}

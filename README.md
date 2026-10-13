@@ -1,4 +1,4 @@
-Inspired by [LeakCanary](https://square.github.io/leakcanary/).
+Inspired by [LeakCanary for Android](https://square.github.io/leakcanary/)
 
 Automatic memory-leak detection for Flutter.
 
