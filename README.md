@@ -1,13 +1,199 @@
+Inspired by [LeakCanary](https://square.github.io/leakcanary/).
+
 Automatic memory-leak detection for Flutter.
 
-LeakSentry watches the objects Flutter disposes and tells you which ones something is still holding on to, and what is holding them.
+LeakSentry watches the objects Flutter disposes and tells you which ones something is still holding on to. When it can reach the app's VM service, it also shows what is holding them.
+
+<p align="center">
+  <a href="doc/how-it-works.mp4"><img src="doc/how-it-works.gif" width="300" alt="A recording of LeakSentry at work in an example app: pages that leak are visited, a notice says objects are held, a scan finds three leaks, and a leak shows where it was created and what holds it"></a>
+  <br>
+  <sub>The example app, in about 35 seconds. <a href="doc/how-it-works.mp4">Watch it as a video.</a></sub>
+</p>
 
 1. **Watch.** When Flutter disposes a `State`, a `Route`, a `ChangeNotifier` or an `AnimationController`, LeakSentry expects it to be garbage collected, and holds a weak reference to it.
 2. **Wait five seconds.** If the weak reference hasn't been cleared by then, the object is *retained*. Nothing has forced a GC yet, so this is provisional.
-3. **Check.** A retained object schedules a check. It forces a GC, counts again, and then decides: while the app is visible it waits for **5** retained objects (and rechecks every 2 s); once the app is in the background it dumps for any number. It never dumps more than once a minute.
+3. **Check.** A retained object schedules a check. It forces a GC (unless the last one already covered every retained object), counts again, and then decides: while the app is visible it waits for **5** retained objects (and rechecks every 2 s); once the app has been in the background for a few seconds it dumps for any number. On its own it never dumps more than once a minute; a scan you ask for is not held back.
 4. **Dump and analyze.** The retained objects are captured, the VM is asked for the retaining path of each distinct leak, and the leaks are reported. An object that was reported is never reported again.
 
-Resources that never get a disposal callback (a raw `StreamController`) are covered by a second detection: [reporting a resource garbage collected without being closed](#detecting-unclosed-resources).
+A resource that never gets a disposal callback, a `StreamController` for one, is not watched automatically. Swap in `TrackedStreamController`, or pass the resource to `LeakSentry.trackResource`, and a second detection [reports it if it is garbage collected without being closed](#detecting-unclosed-resources).
+
+## See it work
+
+The screens below are from an example app with six pages that leak and one that does not. LeakSentry is installed in it with one line at startup (in debug builds), and its overlay sits above the app's navigator: see [Getting started](#getting-started) and [Seeing leaks in the app](#seeing-leaks-in-the-app) to do the same in yours.
+
+### Before anything leaks
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/01_example_app.png"><img src="doc/screenshots/01_example_app.png" width="250" alt="The example app's home screen: a button for each page, and nothing from LeakSentry on screen"></a><br>
+      <b>The example app</b><br>
+      <sub>Six pages that leak, and one that does not. LeakSentry shows nothing until it has something to say.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/02_leaks_empty.png"><img src="doc/screenshots/02_leaks_empty.png" width="250" alt="The Leaks tab saying there are no leaks so far"></a><br>
+      <b>The Leaks tab, empty</b><br>
+      <sub>The example app has a button that opens LeakSentry&#39;s screen. Nothing has leaked yet.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/03_scans_empty.png"><img src="doc/screenshots/03_scans_empty.png" width="250" alt="The Scans tab saying nothing is being held, with a Scan now button and no scans listed"></a><br>
+      <b>The Scans tab, empty</b><br>
+      <sub>Nothing is held and nothing was scanned. Scan now scans whatever is held, at once.</sub>
+    </td>
+  </tr>
+</table>
+
+### A page leaks, and LeakSentry notices
+
+Visit a page and come back: steps 1 and 2 above. Flutter disposes the page, and LeakSentry expects what belongs to it to be garbage collected. Five seconds later, if it is not, it is *retained*; LeakSentry checks it by forcing a garbage collection, and what is still there is *held*, the word the screens use.
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/04_leaky_page.png"><img src="doc/screenshots/04_leaky_page.png" width="250" alt="Page three of the example app, which explains that LeakSentry waits for retained objects"></a><br>
+      <b>A page that leaks</b><br>
+      <sub>Page 3 keeps a notifier in a global list that nothing empties, and the notifier is disposed with the page.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/05_notice.png"><img src="doc/screenshots/05_notice.png" width="250" alt="The example app's home screen with a notice at the bottom right reading 1 held, scans at 5"></a><br>
+      <b>The notice</b><br>
+      <sub>Five seconds after the page is gone, the notifier is still reachable. The notice says one object is held, and that LeakSentry scans when 5 are.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/06_scans_held.png"><img src="doc/screenshots/06_scans_held.png" width="250" alt="The Scans tab saying one object is held, and when LeakSentry scans"></a><br>
+      <b>Why it has not scanned yet</b><br>
+      <sub>Tap the notice to open the Scans tab: LeakSentry scans when 5 are held while you use the app, or a few seconds after you leave it.</sub>
+    </td>
+  </tr>
+</table>
+
+### A scan finds the leaks
+
+Scanning is steps 3 and 4 above: a garbage collection, then a path for each distinct leak.
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/07_scanning.png"><img src="doc/screenshots/07_scanning.png" width="250" alt="The Scans tab while a scan runs, with a progress bar and the words Tracing what holds it"></a><br>
+      <b>A scan under way</b><br>
+      <sub>A scan forces a garbage collection, then asks the VM what holds each leak. Paused at its second step for this screenshot.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/08_badge.png"><img src="doc/screenshots/08_badge.png" width="250" alt="The example app's home screen with a badge at the bottom right reading 4 leaks, with a dot on its corner"></a><br>
+      <b>The badge</b><br>
+      <sub>A scan that finds leaks puts a badge on the app with how many. The dot is there while a leak has not been opened.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/09_leaks.png"><img src="doc/screenshots/09_leaks.png" width="250" alt="The Leaks tab listing four leaks, each with its likely cause, the type it holds and the file and line it was created at"></a><br>
+      <b>The Leaks tab</b><br>
+      <sub>One card for each distinct leak, the one with the most objects first: how many objects, what holds them, and where the latest of them was created. <i>NEW</i> marks a leak you have not opened yet.</sub>
+    </td>
+  </tr>
+</table>
+
+### One leak, in detail
+
+Tap a leak. The first card says where the object was created, the file and line, or why that is not known. The second says what is holding it. Here a `Timer` that is never cancelled holds a closure that captured the page's `State`.
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/10_leak_timer_top.png"><img src="doc/screenshots/10_leak_timer_top.png" width="250" alt="A leak that a Timer holds: the card saying it was created at lib/main.dart line 289, and the start of the path"></a><br>
+      <b>Where it was created</b><br>
+      <sub>The file and line, and the start of the path that holds the leak.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/11_leak_timer_path.png"><img src="doc/screenshots/11_leak_timer_path.png" width="250" alt="The path of the leak, step by step: steps 1 to 4 marked In use, step 5 marked Unclear, and the reference ._callback of step 4 highlighted with the words start here"></a><br>
+      <b>What is holding it</b><br>
+      <sub>The path from something that lives as long as the app, step by step. <i>start here</i> marks the reference to look at first.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/12_leak_timer_path_end.png"><img src="doc/screenshots/12_leak_timer_path_end.png" width="250" alt="The end of the path: unclear steps marked as likely causes, and the leaked State marked should be gone"></a><br>
+      <b>The leaked object</b><br>
+      <sub>The path ends at the object Flutter said was disposed. Steps LeakSentry cannot judge are <i>unclear</i>; likely causes are marked.</sub>
+    </td>
+  </tr>
+</table>
+
+**Copy report** and **Print to console**, the two icons at the top of the leak, give the leak as plain text, to paste into an issue.
+
+<details>
+<summary>The report of this leak</summary>
+
+```text
+LeakSentry report
+_Timer._callback · 2 objects · last seen just now
+Holds _PageSixState
+
+Created at: package:leak_entry_app/main.dart:289:11
+  _PageSixState.initState
+Path (from the root to the leaked object)
+  Starts at: a static variable
+  1. _Timer ._heap [in use]
+     _TimerHeap below it is in use, and a static variable lives as long as the app.
+  2. _TimerHeap ._list [in use]
+     _Timer below it is in use, and the Dart event loop owns it: it keeps every pending timer.
+  3. _List [1] [in use]
+     _Timer below it is in use.
+  4. _Timer ._callback [in use] <- likely cause
+     The Dart event loop owns it: it keeps every pending timer.
+  5. _CustomZone.bindUnaryCallback.<anonymous closure> captured variable [unclear] <- likely cause
+  6. _CustomZone.bindUnaryCallbackGuarded.<anonymous closure> captured variable [unclear] <- likely cause
+  7. _PageSixState.initState.<anonymous closure> captured variable [unclear] <- likely cause
+  8. _PageSixState [should be gone] (the leaked object)
+     Expected to be gone: _PageSixState received State#dispose() callback
+```
+
+</details>
+
+Two more kinds of leak look different:
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/13_leak_registry.png"><img src="doc/screenshots/13_leak_registry.png" width="250" alt="A leak of two instances: one with the line it was created at, one saying its creation site was not recorded and giving the line of its class"></a><br>
+      <b>Several objects, one leak</b><br>
+      <sub>Two kinds of State held by one static list are one leak. The one with no <code>initState</code> has no creation site to show, so it says why, and where its class is declared.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/14_leaks_resources.png"><img src="doc/screenshots/14_leaks_resources.png" width="250" alt="The Leaks tab with two resource leaks, each tagged Resource and saying where it was acquired"></a><br>
+      <b>A resource never closed</b><br>
+      <sub>A <code>TrackedStreamController</code> that was never closed is reported when it is garbage collected.</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <a href="doc/screenshots/15_resource_leak.png"><img src="doc/screenshots/15_resource_leak.png" width="250" alt="The detail of a resource leak: the line it was acquired at, and a note that there is no path to show"></a><br>
+      <b>Where it was acquired</b><br>
+      <sub>Nothing holds it any more, so there is no path. The leak says where the resource was acquired instead.</sub>
+    </td>
+  </tr>
+</table>
+
+### Scans and settings
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="25%">
+      <a href="doc/screenshots/16_scans.png"><img src="doc/screenshots/16_scans.png" width="190" alt="The Scans tab listing two finished scans"></a><br>
+      <b>The scans</b><br>
+      <sub>The latest scans, newest first. Scan now scans whatever is held.</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <a href="doc/screenshots/17_scan.png"><img src="doc/screenshots/17_scan.png" width="190" alt="The detail of a scan: the reason it started, how many objects were held, and the four leaks it found"></a><br>
+      <b>One scan</b><br>
+      <sub>Why it started, how many objects were held, how long its analysis took, and the leaks it found. <i>NEW</i> marks a leak that no earlier scan had found.</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <a href="doc/screenshots/18_settings.png"><img src="doc/screenshots/18_settings.png" width="190" alt="The Settings tab with the automatic scanning switch, the number of objects to wait for, and the status of the VM service"></a><br>
+      <b>Settings</b><br>
+      <sub>Whether to scan automatically, how many held objects to wait for, and whether the VM service can be reached.</sub>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <a href="doc/screenshots/19_clear.png"><img src="doc/screenshots/19_clear.png" width="190" alt="The dialog that asks whether to clear leaks and scans"></a><br>
+      <b>Clear</b><br>
+      <sub>Forgets the leaks and scans of this session, and asks first.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Getting started
 
@@ -84,11 +270,13 @@ LeakSentry(
 )
 ```
 
+The notice says where scanning stands: `N held · scans at 5`, `N held · scanned moments ago` (after a scan the next automatic one waits a minute; Scan now does not wait), `N held · scanning is off`, `N held · last scan failed`, or `All clear` once everything that was held has been collected. Tapping it opens the Scans tab; tapping the badge opens the Leaks tab. There are screenshots of every screen in [See it work](#see-it-work).
+
 Or open it from your own debug menu with `LeakSentry.showScreen(context)`, or embed `LeakSentryScreen` as a page of your own. The screen is a route of your app's navigator, so back, dialogs and text selection work in it.
 
 It has three tabs:
 
-- **Leaks** lists the distinct leaks, the one with the most objects first. Leaks held the same way are one leak, whatever they are and wherever they were created. A row says what is holding the objects (the likely cause), what it holds, where the first of them was created, and when it was last seen.
+- **Leaks** lists the distinct leaks, the one with the most objects first. Leaks held the same way are one leak, whatever they are and wherever they were created. A row says what is holding the objects (the likely cause), what it holds, where the latest of them was created, and when it was last seen.
 - **Scans** lists the heap scans: why each started, how many objects were held, how many leaks it found and how many are new, and where each leak came from. It also says whether a scan is running, why none is, and has **Scan now**.
 - **Settings** has the switch for scanning automatically, how many held objects to wait for before it does, and clears the list.
 
@@ -96,7 +284,7 @@ Tap a leak to see:
 
 - **Where it was created.** The file and line of every instance, always: see [below](#where-the-leaked-object-was-created).
 - **What is holding it.** The path from something that lives as long as the app (a static variable, Dart's timers) to the leaked object, one step at a time. Each step says whether it is *in use*, *should be gone* or *unclear*, and why, and the references that are the likeliest cause are highlighted: start with those.
-- **Copy report** and **Print to console**, which give the same as plain text to paste into an issue.
+- **Copy report** and **Print to console**, which give the leak as plain text to paste into an issue.
 
 Everything the screen lists is kept for the session only. In a release build the overlay shows nothing unless you installed LeakSentry there on purpose (`allowInRelease`), so the people who use your app never see a leak badge.
 
@@ -104,7 +292,7 @@ Everything the screen lists is kept for the session only. In a release build the
 
 LeakSentry logs what it is doing and what it finds (set `LeakSentryLog.verbose = true` to also see a line for every object it starts watching, which is a lot: Flutter disposes hundreds on each navigation):
 
-```
+```text
 LeakSentry: LeakSentry is running and ready to detect memory leaks.
 LeakSentry: Found 1 object retained, not dumping heap yet (app is visible & < 5 threshold)
 LeakSentry: Found 5 objects retained, dumping heap now (app is visible & >=5 threshold)
@@ -134,7 +322,7 @@ Repeats of the same leak (same type, reason and creation site) are one `LeakRepo
 
 Every leak says where to start looking, in the report, in the log and on the screen. `LeakReport.creationSite` names the first stack frame outside the Dart SDK, Flutter and `leak_sentry` at the moment Flutter announced the object's creation:
 
-```
+```text
 Created at: _PageThreeState.initState (package:my_app/page_three.dart:193:11)
 ```
 
@@ -225,7 +413,3 @@ Without it LeakSentry still detects leaks, but forces the GC by allocating, whic
 ## Performance
 
 `LeakSentry.stats` counts what detection has cost so far: events handled, forced GCs (and how many were skipped), heap dumps, analyses, retaining-path lookups, and the time spent in each.
-
----
-
-Inspired by [LeakCanary](https://square.github.io/leakcanary/).

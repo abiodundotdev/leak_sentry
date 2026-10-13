@@ -149,7 +149,7 @@ abstract final class LeakSentryCopy {
   static const String scanStatusIdleBody = 'LeakSentry is watching. A scan starts when enough disposed objects stay alive.';
   static String scanStatusHeld(int held) => '${countOf(held, 'object')} held';
   static String scanStatusWaiting(int threshold) =>
-      'LeakSentry scans when $threshold are held while you use the app, or as soon as you leave it.';
+      'LeakSentry scans when $threshold are held while you use the app, or a few seconds after you leave it.';
   static const String scanStatusRecent = 'The last scan was moments ago, so the next one waits a little.';
   static const String scanStatusFailed = 'The last scan failed. LeakSentry tries again soon.';
   static const String scanStatusAllClear = 'All clear';
@@ -194,7 +194,7 @@ abstract final class LeakSentryCopy {
   static const String settingsThresholdLess = 'Wait for one object fewer';
   static const String settingsThresholdMore = 'Wait for one object more';
   static const String settingsThresholdHint =
-      'While you use the app, LeakSentry waits until this many objects are held. Leaving the app scans at once.';
+      'While you use the app, LeakSentry waits until this many objects are held. A few seconds after you leave it, it scans whatever is held.';
   static const String settingsClear = 'Clear leaks and scans';
   static const String settingsClearConfirmTitle = 'Clear leaks and scans?';
   static const String settingsClearConfirmBody = 'This forgets every leak and scan LeakSentry has listed this session.';
