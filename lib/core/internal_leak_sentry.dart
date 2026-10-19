@@ -441,8 +441,6 @@ class InternalLeakSentry {
       );
     }
     if (!kDebugMode) {
-      // The framework reports object creation and disposal from inside an
-      // `assert`, so only a debug build reports anything.
       LeakSentryLog.d(
         () =>
             'Flutter only reports object creation and disposal in debug builds, so States, Routes and '
@@ -490,6 +488,7 @@ class InternalLeakSentry {
       notifier: _notifier,
       stats: stats,
     );
+    
     _heapDumpTrigger = trigger;
     _visibilityTracker.start(trigger.onApplicationVisibilityChanged);
 

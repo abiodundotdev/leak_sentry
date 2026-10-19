@@ -1,20 +1,41 @@
+# LeakSentry
+
 Automatic memory-leak detection for Flutter.
 
-LeakSentry watches the objects Flutter disposes and tells you which ones something is still holding on to. When it can reach the app's VM service, it also shows what is holding them.
-
+**LeakSentry** watches the objects Flutter disposes and tells you which ones something is still holding on to. When it can reach the app's VM service, it also shows what is holding them.
 
 <p align="center">
   <a href="doc/how-it-works.mp4"><img src="doc/how-it-works.gif" width="300" alt="A recording of LeakSentry at work in an example app: pages that leak are visited, a notice says objects are held, a scan finds three leaks, and a leak shows where it was created and what holds it"></a>
   <br>
-  <sub>The example app, in about 35 seconds. <a href="doc/how-it-works.mp4">Watch it as a video.</a></sub>
+  <sub>The example app, in about 30 seconds. <a href="doc/how-it-works.mp4">Watch it as a video.</a></sub>
 </p>
 
-1. **Watch.** When Flutter disposes a `State`, a `Route`, a `ChangeNotifier` or an `AnimationController`, LeakSentry expects it to be garbage collected, and holds a weak reference to it.
-2. **Wait five seconds.** If the weak reference hasn't been cleared by then, the object is *retained*. Nothing has forced a GC yet, so this is provisional.
-3. **Check.** A retained object schedules a check. It forces a GC (unless the last one already covered every retained object), counts again, and then decides: while the app is visible it waits for **5** retained objects (and rechecks every 2 s); once the app has been in the background for a few seconds it dumps for any number. On its own it never dumps more than once a minute; a scan you ask for is not held back.
-4. **Dump and analyze.** The retained objects are captured, the VM is asked for the retaining path of each distinct leak, and the leaks are reported. An object that was reported is never reported again.
+## Quick navigation
 
-A resource that never gets a disposal callback, a `StreamController` for one, is not watched automatically. Swap in `TrackedStreamController`, or pass the resource to `LeakSentry.trackResource`, and a second detection [reports it if it is garbage collected without being closed](#detecting-unclosed-resources).
+- [How it works](#how-it-works): the detection cycle at a glance
+- [See it work](#see-it-work): screenshots of every screen
+- [Getting started](#getting-started): install and set up
+- [Seeing leaks in the app](#seeing-leaks-in-the-app): the overlay and the LeakSentry screen
+- [Reading what it found](#reading-what-it-found): logs, the API, creation sites and the trace
+- [Configuration](#configuration)
+- [Detecting unclosed resources](#detecting-unclosed-resources)
+- [Design notes](#design-notes)
+- [Platform notes](#platform-notes)
+- [Performance](#performance)
+
+## How it works
+
+LeakSentry runs a four-step cycle on retained objects:
+
+1. **Watch** — When Flutter disposes a `State`, `Route`, `ChangeNotifier`, or `AnimationController`, LeakSentry expects it to be garbage collected and holds a weak reference to it.
+
+2. **Wait five seconds** — If the weak reference hasn't been cleared by then, the object is *retained*. Nothing has forced a GC yet, so this is provisional.
+
+3. **Check** — A retained object schedules a check. It forces a GC (unless the last one already covered every retained object), counts again, and then decides: while the app is visible it waits for **5** retained objects (and rechecks every 2 s); once the app has been in the background for a few seconds it dumps for any number. On its own it never dumps more than once a minute; a scan you ask for is not held back.
+
+4. **Dump and analyze** — The retained objects are captured, the VM is asked for the retaining path of each distinct leak, and the leaks are reported. An object that was reported is never reported again.
+
+> **Tip:** A resource that never gets a disposal callback, a `StreamController` for one, is not watched automatically. Swap in `TrackedStreamController`, or pass the resource to `LeakSentry.trackResource`, and a second detection [reports it if it is garbage collected without being closed](#detecting-unclosed-resources).
 
 ## See it work
 
@@ -92,27 +113,17 @@ Scanning is steps 3 and 4 above: a garbage collection, then a path for each dist
 
 ### One leak, in detail
 
-Tap a leak. The first card says where the object was created, the file and line, or why that is not known. The second says what is holding it. Here a `Timer` that is never cancelled holds a closure that captured the page's `State`.
+Tap a leak. The first card says where the object was created, the file and line, or why that is not known. The second says what is holding it. Here a page disposes its `ChangeNotifier` when it goes away, but it also put the notifier in a global list that nothing empties.
 
-<table>
-  <tr>
-    <td align="center" valign="top" width="33%">
-      <a href="doc/screenshots/10_leak_timer_top.png"><img src="doc/screenshots/10_leak_timer_top.png" width="250" alt="A leak that a Timer holds: the card saying it was created at lib/main.dart line 289, and the start of the path"></a><br>
-      <b>Where it was created</b><br>
-      <sub>The file and line, and the start of the path that holds the leak.</sub>
-    </td>
-    <td align="center" valign="top" width="33%">
-      <a href="doc/screenshots/11_leak_timer_path.png"><img src="doc/screenshots/11_leak_timer_path.png" width="250" alt="The path of the leak, step by step: steps 1 to 4 marked In use, step 5 marked Unclear, and the reference ._callback of step 4 highlighted with the words start here"></a><br>
-      <b>What is holding it</b><br>
-      <sub>The path from something that lives as long as the app, step by step. <i>start here</i> marks the reference to look at first.</sub>
-    </td>
-    <td align="center" valign="top" width="33%">
-      <a href="doc/screenshots/12_leak_timer_path_end.png"><img src="doc/screenshots/12_leak_timer_path_end.png" width="250" alt="The end of the path: unclear steps marked as likely causes, and the leaked State marked should be gone"></a><br>
-      <b>The leaked object</b><br>
-      <sub>The path ends at the object Flutter said was disposed. Steps LeakSentry cannot judge are <i>unclear</i>; likely causes are marked.</sub>
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <a href="doc/screenshots/10_leak_notifier.png"><img src="doc/screenshots/10_leak_notifier.png" width="300" alt="A leak that a static list holds: the card saying it was created at lib/main.dart line 181, and a path of three steps: a static variable marked In use with start here on its reference, a list marked Unclear, and the LeakyValueNotifier marked Should be gone"></a>
+  <br>
+  <sub>One leak, whole: where it was created, and the path that holds it.</sub>
+</p>
+
+- **Where it was created.** The file and line, here `lib/main.dart:181`, in the `initState` of the page.
+- **What is holding it.** The path starts at something that lives as long as the app, here a static variable, and ends at the leaked object, step by step. Each step is *in use*, *unclear* or *should be gone*, and *start here* marks the reference to look at first.
+- **The leaked object.** The path ends at the object Flutter said was disposed. Steps LeakSentry cannot judge are *unclear*; likely causes are marked.
 
 **Copy report** and **Print to console**, the two icons at the top of the leak, give the leak as plain text, to paste into an issue.
 
@@ -121,26 +132,18 @@ Tap a leak. The first card says where the object was created, the file and line,
 
 ```text
 LeakSentry report
-_Timer._callback · 2 objects · last seen just now
-Holds _PageSixState
+main.dart._accidentallyRetainedGlobalList · 3 objects · last seen just now
+Holds LeakyValueNotifier
 
-Created at: package:leak_entry_app/main.dart:289:11
-  _PageSixState.initState
+Created at: package:leak_entry_app/main.dart:181:11
+  _PageThreeState.initState
 Path (from the root to the leaked object)
   Starts at: a static variable
-  1. _Timer ._heap [in use]
-     _TimerHeap below it is in use, and a static variable lives as long as the app.
-  2. _TimerHeap ._list [in use]
-     _Timer below it is in use, and the Dart event loop owns it: it keeps every pending timer.
-  3. _List [1] [in use]
-     _Timer below it is in use.
-  4. _Timer ._callback [in use] <- likely cause
-     The Dart event loop owns it: it keeps every pending timer.
-  5. _CustomZone.bindUnaryCallback.<anonymous closure> captured variable [unclear] <- likely cause
-  6. _CustomZone.bindUnaryCallbackGuarded.<anonymous closure> captured variable [unclear] <- likely cause
-  7. _PageSixState.initState.<anonymous closure> captured variable [unclear] <- likely cause
-  8. _PageSixState [should be gone] (the leaked object)
-     Expected to be gone: _PageSixState received State#dispose() callback
+  1. main.dart ._accidentallyRetainedGlobalList [in use] <- likely cause
+     A static variable lives as long as the app.
+  2. _GrowableList [1] [unclear] <- likely cause
+  3. LeakyValueNotifier [should be gone] (the leaked object)
+     Expected to be gone: LeakyValueNotifier received ChangeNotifier#dispose() callback
 ```
 
 </details>
@@ -196,7 +199,7 @@ Two more kinds of leak look different:
 
 ## Getting started
 
-Call `install` once at startup, after the bindings are initialized:
+Call `LeakSentry.install()` once at startup, after the bindings are initialized:
 
 ```dart
 import 'package:flutter/foundation.dart';
@@ -218,7 +221,7 @@ LeakSentry(child: MaterialApp(home: const HomePage()))
 
 Add `LeakSentryOverlay` inside it to see leaks in the running app, as [described below](#seeing-leaks-in-the-app).
 
-`install` throws in a release build: a heap dump freezes the app, and a release build has no VM service to analyze it with. If you really want it there, pass `allowInRelease: true`. To only *count* retained objects in release builds, without ever dumping the heap, call `LeakSentry.installObjectWatcher()` and read `LeakSentry.retainedObjectCount`.
+> **Release builds.** `install` throws in a release build: a heap dump freezes the app, and a release build has no VM service to analyze it with. If you really want it there, pass `allowInRelease: true`. To only *count* retained objects in release builds, without ever dumping the heap, call `LeakSentry.installObjectWatcher()` and read `LeakSentry.retainedObjectCount`.
 
 ### What is watched
 
@@ -269,7 +272,17 @@ LeakSentry(
 )
 ```
 
-The notice says where scanning stands: `N held · scans at 5`, `N held · scanned moments ago` (after a scan the next automatic one waits a minute; Scan now does not wait), `N held · scanning is off`, `N held · last scan failed`, or `All clear` once everything that was held has been collected. Tapping it opens the Scans tab; tapping the badge opens the Leaks tab. There are screenshots of every screen in [See it work](#see-it-work).
+The notice says where scanning stands:
+
+| Notice | Meaning |
+| --- | --- |
+| `N held · scans at 5` | `N` objects are held, and LeakSentry scans when 5 are. |
+| `N held · scanned moments ago` | A scan just ran. The next automatic one waits a minute; **Scan now** does not wait. |
+| `N held · scanning is off` | Automatic scanning is switched off. |
+| `N held · last scan failed` | The last scan failed. |
+| `All clear` | Everything that was held has been collected. |
+
+Tapping the notice opens the Scans tab; tapping the badge opens the Leaks tab. There are screenshots of every screen in [See it work](#see-it-work).
 
 Or open it from your own debug menu with `LeakSentry.showScreen(context)`, or embed `LeakSentryScreen` as a page of your own. The screen is a route of your app's navigator, so back, dialogs and text selection work in it.
 
@@ -334,7 +347,7 @@ When that is not known, there is always the next best thing, in this order:
 
 A report always has `creationSite`, or `watchSite`, or a `creationSiteGap`: a test checks it. A resource that was never closed says where it was *acquired* instead.
 
-Treat it as a pointer to where to start looking, not a guarantee. It is where the object was *created*, not where whatever retains it stored a reference: that is what the retaining path is for.
+> Treat it as a pointer to where to start looking, not a guarantee. It is where the object was *created*, not where whatever retains it stored a reference: that is what the retaining path is for.
 
 ### The trace
 
@@ -350,12 +363,12 @@ Treat it as a pointer to where to start looking, not a guarantee. It is where th
 LeakSentry.config = LeakSentry.config.copyWith(retainedVisibleThreshold: 3);
 ```
 
-| Option | Default | |
+| Option | Default | What it does |
 | --- | --- | --- |
 | `dumpHeap` | `true` | Turn it off to disable dumping, for a demo for example. |
 | `retainedVisibleThreshold` | `5` | Retained objects to wait for while the app is visible. |
 | `enableRetainingPathAnalysis` | `true` | Look up retaining paths through the VM service. |
-| `maxRetainingPathLookups` | `20` | Each lookup walks the whole heap and pauses the app. |
+| `maxRetainingPathLookups` | `20` | Each lookup walks the whole heap and pauses the app, so a dump with many distinct leaks gets the paths of the first ones only. |
 | `heapDumper` | captures the retained set | Replace how the dump is taken. |
 | `eventListeners` | log + analyze | Start from `LeakSentry.defaultEventListeners` to add one. |
 
@@ -411,7 +424,26 @@ Without it LeakSentry still detects leaks, but forces the GC by allocating, whic
 
 ## Performance
 
-`LeakSentry.stats` counts what detection has cost so far: events handled, forced GCs (and how many were skipped), heap dumps, analyses, retaining-path lookups, and the time spent in each.
+`LeakSentry.stats` counts what detection has cost so far: events handled, forced GCs (and how many were skipped), heap dumps, analyses, retaining-path lookups, and the time spent in each. Print it, or read the counters:
 
+```dart
+print(LeakSentry.stats);
+// LeakSentryStats(creationEvents: …, disposalEvents: …, retainedChecks: …, forcedGcs: …,
+//   heapDumps: …, analyses: …, retainingPathLookups: …, duplicatesSkipped: …)
+```
+
+| Counter | What it counts |
+| --- | --- |
+| `creationEvents`, `creationMicros` | Object creations whose stack trace was captured, and the time spent handling them. |
+| `disposalEvents`, `disposalMicros` | Disposals handled, and the time spent handling them. |
+| `retainedChecks`, `retainedCheckMicros` | Retained-object checks, and the time they took (including waiting for a forced GC). |
+| `forcedGcs`, `forcedGcMicros`, `forcedGcFailures` | Forced GCs that were confirmed, how long they took, and how many could not be confirmed. |
+| `forcedGcsSkipped` | Checks that skipped the forced GC because the last one had already covered every retained object. |
+| `heapDumps`, `heapDumpFailures` | Heap dumps taken, and how many failed. |
+| `analyses`, `analysisMicros` | Analyses run, and the time they took. |
+| `retainingPathLookups`, `retainingPathMicros` | Retaining-path lookups made, and the time they took. |
+| `duplicatesSkipped` | Leaks merged into an existing report without a retaining-path lookup. |
+
+---
 
 Inspired by [LeakCanary for Android](https://square.github.io/leakcanary/)
